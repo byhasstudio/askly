@@ -76,6 +76,14 @@ class OverlayService : Service() {
     private var busy = false
     private var style = "singkat"
 
+    // Penjaga: memeriksa berkala apakah jendela melayang masih terpasang.
+    private val watchdog = object : Runnable {
+        override fun run() {
+            ensureOverlayVisible()
+            handler.postDelayed(this, WATCHDOG_MS)
+        }
+    }
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -86,7 +94,7 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Satu-satunya jalan berhenti: tombol "Hentikan" (notifikasi / halaman utama).
+        // Satu-satunya jalan berhenti: tombol "Hentikan" / "Matikan" yang ditekan user.
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
@@ -130,6 +138,7 @@ class OverlayService : Service() {
         buildBubble()
         buildPanel()
         showBubble()
+        handler.postDelayed(watchdog, WATCHDOG_MS)
         return START_STICKY
     }
 
@@ -336,7 +345,7 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(this).apply {
-            text = "Askly  (geser di sini)"
+            text = "Askly (geser)"
             setTextColor(dark)
             typeface = Typeface.DEFAULT_BOLD
         }
@@ -353,6 +362,27 @@ class OverlayService : Service() {
             }
         }
         header.addView(styleToggle)
+
+        // Tombol matikan Askly sepenuhnya. Perlu dua kali tekan supaya tidak tertutup tidak sengaja.
+        var confirmStop = false
+        val stopBtn = TextView(this).apply {
+            text = "Matikan"
+            setTextColor(Color.parseColor("#D63031"))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        }
+        stopBtn.setOnClickListener {
+            if (!confirmStop) {
+                confirmStop = true
+                stopBtn.text = "Yakin?"
+                handler.postDelayed({
+                    confirmStop = false
+                    stopBtn.text = "Matikan"
+                }, 3000)
+            } else {
+                stopByUser()
+            }
+        }
+        header.addView(stopBtn)
 
         val close = TextView(this).apply {
             text = "\u2715"
@@ -462,6 +492,28 @@ class OverlayService : Service() {
         showBubble()
     }
 
+    // Kalau jendela melayang terlepas karena sebab lain (bukan karena user), pasang lagi.
+    private fun ensureOverlayVisible() {
+        if (!Settings.canDrawOverlays(this)) return
+        if (panelShown) {
+            val p = panel ?: return
+            if (!p.isAttachedToWindow) {
+                try { wm.addView(p, panelParams) } catch (e: Exception) { }
+            }
+        } else {
+            val b = bubble ?: return
+            if (!b.isAttachedToWindow) {
+                bubbleShown = false
+                showBubble()
+            }
+        }
+    }
+
+    // Dipanggil hanya dari tombol Matikan yang ditekan user.
+    private fun stopByUser() {
+        stopSelf()
+    }
+
     // ---------- Bertanya ----------
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
@@ -566,6 +618,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         hideBubble()
         panel?.let {
             if (panelShown) {
@@ -582,5 +635,6 @@ class OverlayService : Service() {
         private const val CHANNEL_ID = "askly"
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "com.byhasstudio.askly.STOP"
+        private const val WATCHDOG_MS = 3000L
     }
 }
