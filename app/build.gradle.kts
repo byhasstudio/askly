@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Nomor build dikirim dari GitHub Actions (-PbuildNumber=...). Dipakai untuk cek update.
+val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.byhasstudio.askly"
     compileSdk = 34
@@ -11,11 +14,24 @@ android {
         applicationId = "com.byhasstudio.askly"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNumber
+        versionName = "1.$buildNumber"
+    }
+
+    // Kunci tetap supaya setiap build bisa menimpa (update) versi yang sudah terpasang.
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("askly.keystore")
+            storePassword = "askly123"
+            keyAlias = "askly"
+            keyPassword = "askly123"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
         }
