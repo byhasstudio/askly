@@ -73,6 +73,7 @@ class OverlayService : Service() {
     private var screenDpi = 0
 
     private var started = false
+    private var destroyed = false
     private var busy = false
     private var style = "singkat"
 
@@ -107,9 +108,24 @@ class OverlayService : Service() {
         // izin screenshot yang hilang sampai user menekan Mulai Askly lagi.
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
-        val withProjection = data != null
+        var withProjection = data != null
 
-        startAsForeground(withProjection)
+        // Android 12+ bisa menolak startForeground() dari background, dan itu dulu membuat
+        // service crash lalu terlihat "ditutup paksa sistem". Sekarang ditangkap: coba lagi
+        // tanpa tipe screenshot, dan hanya menyerah kalau Android benar-benar menolak.
+        if (!tryStartForeground(withProjection)) {
+            withProjection = false
+            if (!tryStartForeground(false)) {
+                started = false
+                Toast.makeText(
+                    this,
+                    "Android menolak menjalankan Askly di latar belakang. Buka app Askly lalu tekan Mulai.",
+                    Toast.LENGTH_LONG
+                ).show()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
 
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Izin tampil di atas app lain belum aktif", Toast.LENGTH_LONG).show()
@@ -142,11 +158,22 @@ class OverlayService : Service() {
         return START_STICKY
     }
 
-    private fun startAsForeground(withProjection: Boolean) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Askly", NotificationManager.IMPORTANCE_LOW)
-        )
+    // Dipanggil saat app dibersihkan dari recents. Service tetap hidup (stopWithTask=false),
+    // jadi pastikan jendela melayangnya juga masih terpasang.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        handler.post { if (!destroyed) ensureOverlayVisible() }
+    }
+
+    private fun tryStartForeground(withProjection: Boolean): Boolean =
+        try {
+            startAsForeground(withProjection)
+            true
+        } catch (e: Exception) {
+            false
+        }
+
+    private fun buildNotification(text: String): Notification {
         val stopIntent = PendingIntent.getService(
             this, 0,
             Intent(this, OverlayService::class.java).setAction(ACTION_STOP),
@@ -157,13 +184,26 @@ class OverlayService : Service() {
             "Hentikan",
             stopIntent
         ).build()
-        val notification = Notification.Builder(this, CHANNEL_ID)
+        return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Askly aktif")
-            .setContentText("Tap bubble ? untuk bertanya")
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .addAction(stopAction)
             .setOngoing(true)
             .build()
+    }
+
+    private fun startAsForeground(withProjection: Boolean) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Askly", NotificationManager.IMPORTANCE_LOW)
+        )
+        val text = if (withProjection) {
+            "Tap bubble ? untuk bertanya"
+        } else {
+            "Tap bubble ? untuk bertanya. Screenshot nonaktif."
+        }
+        val notification = buildNotification(text)
 
         if (Build.VERSION.SDK_INT >= 29) {
             val type = when {
@@ -177,6 +217,19 @@ class OverlayService : Service() {
         }
     }
 
+    // Izin screenshot dicabut Android (misalnya layar dikunci di Android 14+). Bubble tetap
+    // hidup untuk pertanyaan ketikan; user diberi tahu supaya tidak bingung.
+    private fun onProjectionLost() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.notify(
+                NOTIF_ID,
+                buildNotification("Screenshot nonaktif. Buka Askly lalu tekan Mulai untuk mengaktifkan lagi.")
+            )
+        } catch (e: Exception) { }
+        toast("Izin screenshot berhenti. Bubble tetap aktif untuk pertanyaan ketikan.")
+    }
+
     // ---------- Screenshot (MediaProjection) ----------
 
     private fun setupProjection(code: Int, data: Intent) {
@@ -184,7 +237,12 @@ class OverlayService : Service() {
         val p = mpm.getMediaProjection(code, data)
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                handler.post { releaseProjection() }
+                handler.post {
+                    if (!destroyed && projection === p) {
+                        releaseProjection()
+                        onProjectionLost()
+                    }
+                }
             }
         }, handler)
         projection = p
@@ -618,6 +676,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         handler.removeCallbacksAndMessages(null)
         hideBubble()
         panel?.let {

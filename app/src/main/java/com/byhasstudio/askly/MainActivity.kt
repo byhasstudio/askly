@@ -2,6 +2,7 @@ package com.byhasstudio.askly
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -92,10 +93,17 @@ class MainActivity : Activity() {
         root.addView(label("Langkah"))
         root.addView(button("1. Izinkan tampil di atas app lain") { openOverlaySettings() })
         root.addView(button("2. Bebaskan dari hemat baterai (agar tidak dimatikan sistem)") { requestBatteryExemption() })
-        root.addView(button("3. Mulai Askly") { startAskly() })
+        root.addView(button("3. Izinkan jalan di latar belakang (Autostart)") { openAutostartSettings() })
+        root.addView(button("4. Mulai Askly") { startAskly() })
         root.addView(button("Hentikan Askly") {
             stopService(Intent(this, OverlayService::class.java))
             toast("Askly dihentikan")
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Supaya bubble tidak tertutup sendiri: selesaikan langkah 1-3, lalu kunci Askly " +
+                "di daftar recents (tahan kartu app lalu pilih Kunci) dan jangan geser Askly dari recents."
+            setPadding(0, dp(16), 0, 0)
         })
 
         root.addView(TextView(this).apply {
@@ -137,6 +145,39 @@ class MainActivity : Activity() {
             )
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
+
+    // Banyak HP (Xiaomi, Oppo, Vivo, Realme, Huawei, Samsung, Infinix) punya pengaturan
+    // Autostart sendiri yang mematikan app latar belakang walaupun hemat baterai sudah dimatikan.
+    // Coba buka halaman itu langsung; kalau tidak ada, buka detail app.
+    private fun openAutostartSettings() {
+        val candidates = listOf(
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            ComponentName("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity")
+        )
+        for (c in candidates) {
+            try {
+                startActivity(Intent().setComponent(c))
+                toast("Aktifkan Askly di daftar ini (Autostart / tanpa batasan).")
+                return
+            } catch (e: Exception) {
+                // coba kandidat berikutnya
+            }
+        }
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            )
+            toast("Buka Baterai atau Aktivitas latar belakang, lalu pilih 'Tanpa batasan'.")
+        } catch (e: Exception) {
+            toast("Buka Pengaturan HP, cari Askly, lalu izinkan jalan di latar belakang.")
         }
     }
 
