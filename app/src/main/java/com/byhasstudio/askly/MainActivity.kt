@@ -8,6 +8,7 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.view.ViewGroup
@@ -90,7 +91,8 @@ class MainActivity : Activity() {
 
         root.addView(label("Langkah"))
         root.addView(button("1. Izinkan tampil di atas app lain") { openOverlaySettings() })
-        root.addView(button("2. Mulai Askly") { startAskly() })
+        root.addView(button("2. Bebaskan dari hemat baterai (agar tidak dimatikan sistem)") { requestBatteryExemption() })
+        root.addView(button("3. Mulai Askly") { startAskly() })
         root.addView(button("Hentikan Askly") {
             stopService(Intent(this, OverlayService::class.java))
             toast("Askly dihentikan")
@@ -120,6 +122,21 @@ class MainActivity : Activity() {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             )
+        }
+    }
+
+    private fun requestBatteryExemption() {
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            toast("Askly sudah bebas dari hemat baterai")
+            return
+        }
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            )
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }
 

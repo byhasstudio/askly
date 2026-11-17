@@ -86,13 +86,17 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Satu-satunya jalan berhenti: tombol "Hentikan" (notifikasi / halaman utama).
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (started) return START_NOT_STICKY
+        if (started) return START_STICKY
         started = true
 
+        // intent == null berarti service dihidupkan ulang oleh sistem setelah sempat
+        // dimatikan (START_STICKY). Dalam kasus itu bubble tetap muncul lagi, hanya
+        // izin screenshot yang hilang sampai user menekan Mulai Askly lagi.
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
         val withProjection = data != null
@@ -126,7 +130,7 @@ class OverlayService : Service() {
         buildBubble()
         buildPanel()
         showBubble()
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun startAsForeground(withProjection: Boolean) {
